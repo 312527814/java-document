@@ -1,0 +1,129 @@
+1 排序
+2 指令集  操作数栈
+
+JVM 内存模型
+	线程工作内存 共享主内存
+
+对象
+	对象定位
+		句柄定位
+		直接指针
+	对象大小
+		普通对象
+			1. 对象头：markword  8
+			2. ClassPointer指针：-XX:+UseCompressedClassPointers 为4字节 不开启为8字节
+			3. 实例数据
+				1. 引用类型：-XX:+UseCompressedOops 为4字节 不开启为8字节 	Oops Ordinary Object Pointers
+			4. Padding对齐，8的倍数
+		数组对象
+			1. 对象头：markword 8
+			2. ClassPointer指针同上
+			3. 数组长度：4字节
+			4. 数组数据，其实是数组的类型占的字节数*数组的长度，例如 int[] arry =new int[2],此时就是4*2=8，
+			5. 对齐 8的倍数
+运行时数据区
+ 由6部分组成
+	1 程序计数器
+	2 虚拟机栈
+	3 本地方法栈
+	4 方法区 
+		方法区是个逻辑的概念，用来存放类的信息 例如 类信息中的常量池 字段 方法 等
+		jdk<=1.7 方法区称为永久区  GC是不回收的 
+		jdk>=1.8 方法区称为元空间 会触发FGC
+	5 运行时常量池（其实是方法区的一部分）
+	6 堆
+ 从线程的访问范围区分
+	线程共享 
+			
+	线程私有
+		程序计数器
+		虚拟机栈
+		本地方法栈
+		
+GC
+	垃圾定位算法
+		跟可达算法
+		引用计数算法
+	垃圾清除算法
+		标记-清楚
+		复制
+		标记整理
+	对象分配过程
+		1 栈上分配
+		2 线程本地分配缓存区（TLAB）
+		3 Eden
+		4 Survivor
+		5 Old
+	对象什么时候进入老年代
+		1 对象的代领到达15
+		2 大对象
+		3 动态年龄：对象的代龄从小到大进行累加，当加入某个代龄段后，累加和超过survivor区域的TargetSurvivorRatio（默认是50%）的时候，就从这个年龄段往上的年龄的对象进行晋升。
+			例如：年龄1的占用了33%，年龄2的占用了33%，累加和超过默认的TargetSurvivorRatio（50%），年龄2和年龄3的对象都要晋升。
+			https://www.jianshu.com/p/989d3b06a49d
+		4 分配担保：YGC期间 survivor区空间不够了 把新生代的对象直接搬到老年代。
+			https://cloud.tencent.com/developer/article/1082730
+	垃圾收集器跟内存大小的关系
+		1. Serial 几十兆
+		2. PS 上百兆 - 几个G
+		3. CMS - 20G
+		4. G1 - 上百G
+		5. ZGC - 4T - 16T（JDK13）
+
+定位JVM问题		
+1 查看进程Pid
+	top|jps
+2 查看Java进程运行的JVM参数
+	jinfo pid
+3 查看进程中的线程
+	jstack pid
+4 查看进程中的类的实例
+	jmap -histo pid |head 20
+文件记录
+	记录GC日志 -Xloggc:/opt/xxx/logs/xxx-xxx-gc-%t.log -XX:+UseGCLogFileRotation -XX:NumberOfGCLogFiles=5 -XX:GCLogFileSize=20M
+	记录dump 
+		1 jmap -dump:format=b,file=xxx pid 
+		2 -XX:+HeapDumpOnOutOfMemoryError 
+dump文件分析
+	jhat 
+		jhat -J-mx512M xxx.dump
+		https://www.cnblogs.com/baihuitestsoftware/articles/6406271.html 
+	
+	jvisualvm
+
+
+		
+		
+CMS问题
+	1 Memory Fragmentation 采用的是标记清除算法，会产生很多的内存碎片，当内存碎片过多，从年轻到进入老年代的对象找不到空间可以分配的时候 此时就会用SerialOld垃圾回收期 标记整理清楚垃圾 如果内存过大会占用很长的时间
+	2 Floating Garbage 会产生浮动垃圾，
+G1
+
+CardTable
+CSet
+RSet
+
+标记算法-三色算法
+	为了解决在并发标记过程中，存活对象漏标的情况，GC HandBook把对象分成三种颜色：
+
+	1、黑色：自身以及可达对象都已经被标记
+	2、灰色：自身被标记，可达对象还未标记
+	3、白色：还未被标记
+
+	所以，漏标的情况只会发生在白色对象中，且满足以下任意一个条件：
+
+	1、并发标记时，应用线程给一个黑色对象的引用类型字段赋值了该白色对象 
+	2、并发标记时，应用线程删除所有灰色对象到该白色对象的引用
+
+	对于第一种情况，可以采用incremental update 策略，关注引用的增加，把黑色重新标记为灰色 下次从新扫描属性 CMS使用此策略
+	对于第二种情况，可以采用SATB(snapshot at the beginning)，关注引用的删除 当B->A引用消失时 要把这个引用推到GC的堆栈，保证D还能被GC扫描到，G1是此策略
+G1为什么要采用SATB?
+	白色引用消失时 如果没有黑色指向白色引用，引用会被push到GC的堆栈，下次扫描拿到这个引用，由于RSet的存在，不需要扫描整个堆去查找指向白色的引用，效率比较高，SATB配合RSet,浑然天成
+		
+		
+0x10 bipush 将单字节的常量值(-128~127)推送至栈顶
+0x3b istore_0 将栈顶int型数值存入第一个本地变量
+0x84 iinc 指定int型变量增加指定值
+0x1a iload_0 将第一个int型本地变量推送至栈顶
+
+		
+		
